@@ -33,7 +33,8 @@ dependencies = [
     "av",
     "aiortc",
     "uvicorn[standard]",
-    "fastapi"
+    "fastapi",
+    "httpx"
 ]
 
 

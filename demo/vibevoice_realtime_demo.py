@@ -1,10 +1,15 @@
 import argparse, os, uvicorn
+import sys
+
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+print("Root dir:", root_dir)
+sys.path.insert(0, root_dir)
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--port", type=int, default=3000)
     p.add_argument("--model_path", type=str, default="microsoft/VibeVoice-Realtime-0.5B")
-    p.add_argument("--device", type=str, default="cuda", choices=["cpu", "cuda", "mpx", "mps"])
+    p.add_argument("--device", type=str, default="mps", choices=["cpu", "cuda", "mpx", "mps"])
     p.add_argument("--reload", action="store_true", help="Reload the model or not")
     args = p.parse_args()
     

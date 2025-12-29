@@ -173,7 +173,26 @@
     transition: border-color 0.2s, box-shadow 0.2s;
   }
 
+  .input-control {
+    width: 220px;
+    border: 1px solid rgba(31, 39, 66, 0.14);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    background: #fbfcff;
+    color: var(--text-primary);
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
   .select-control:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(85, 98, 255, 0.18);
+    background: #fff;
+  }
+
+  .input-control:focus {
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 3px rgba(85, 98, 255, 0.18);
@@ -304,6 +323,10 @@
       width: 100%;
     }
 
+    .input-control {
+      width: 100%;
+    }
+
     .control-row {
       flex-direction: column;
       align-items: flex-start;
@@ -322,23 +345,40 @@
 
     <section class="panel">
       <label class="field">
-        <span class="field-label">Text</span>
+        <span class="field-label">LLM Prompt</span>
         <textarea
-          id="prompt"
+          id="llmPrompt"
           class="text-input"
           rows="4"
-        >Enter your text here and click "Start" to instantly hear the VibeVoice-Realtime TTS output audio.</textarea>
+        >Summarize the latest news about real-time speech synthesis and why streaming LLM output matters.</textarea>
       </label>
 
       <div id="streamingPreviewContainer">
         <div id="streamingPreviewHeader">
-          <span>Streaming Input Text</span>
+          <span>Streaming LLM Output</span>
         </div>
-        <div id="streamingPreview" aria-live="polite">This area will display the streaming input text in real time.</div>
+        <div id="streamingPreview" aria-live="polite">Streaming output will appear here as the LLM responds.</div>
       </div>
     </section>
-          <span class="helper-text">This demo requires the full text to be provided upfront. The model then receives the text via streaming input during synthesis.<br>
-            For non-punctuation special characters, applying text normalization before processing often yields better results.</span>
+          <span class="helper-text">The LLM response streams here and is spoken by the realtime TTS engine as it arrives. For special characters, apply text normalization for best results.</span>
+
+    <section class="panel">
+      <div class="inline-field">
+        <span class="field-label">LLM Model</span>
+        <input id="llmModel" class="input-control" type="text" value="llama3.2" />
+      </div>
+      <div class="inline-field">
+        <span class="field-label">API Mode</span>
+        <select id="llmApiMode" class="select-control">
+          <option value="chat" selected>Chat Completions</option>
+          <option value="responses">Responses</option>
+        </select>
+      </div>
+      <label class="field">
+        <span class="field-label">System Prompt (optional)</span>
+        <textarea id="systemPrompt" class="text-input" rows="2"></textarea>
+      </label>
+    </section>
           
     <section class="panel control-panel">
       <div class="inline-field">
@@ -351,8 +391,8 @@
       <div class="control-row">
         <label class="range-control">
           <span>CFG</span>
-          <input id="cfgScale" type="range" min="1.3" max="3" step="0.05" value="1.5" />
-          <span class="range-value" id="cfgValue">1.5</span>
+          <input id="cfgScale" type="range" min="1.3" max="3" step="0.05" value="2.3" />
+          <span class="range-value" id="cfgValue">2.3</span>
         </label>
         <label class="range-control">
           <span>Inference Steps</span>
@@ -396,7 +436,10 @@
   let hasStartedPlayback = false;
   let silentFrameCount = 0;
 
-  const promptInput = document.getElementById('prompt');
+  const llmPrompt = document.getElementById('llmPrompt');
+  const systemPrompt = document.getElementById('systemPrompt');
+  const llmModel = document.getElementById('llmModel');
+  const llmApiMode = document.getElementById('llmApiMode');
   const streamingPreview = document.getElementById('streamingPreview');
   const controlBtn = document.getElementById('playback');
   const cfgSelect = document.getElementById('cfgScale');
@@ -539,54 +582,12 @@
     playbackElapsedLabel.textContent = formatSeconds(lastPlaybackElapsed);
   };
 
-  const STREAMING_WPM = 180;
-  const STREAMING_INTERVAL_MS = 60000 / STREAMING_WPM;
-  let previewTimeoutId = null;
-  let previewTokens = [];
-  let previewIndex = 0;
-  let previewActive = false;
-
-  const clearPreviewTimer = () => {
-    if (previewTimeoutId) {
-      clearTimeout(previewTimeoutId);
-      previewTimeoutId = null;
-    }
-  };
-
-  const setPreviewIdle = message => {
+  const resetStreamingPreview = () => {
     if (!streamingPreview) {
       return;
     }
     streamingPreview.classList.remove('streaming-active');
-    streamingPreview.textContent = message;
-  };
-
-  const schedulePreviewTick = () => {
-    if (!streamingPreview) {
-      return;
-    }
-    if (previewIndex >= previewTokens.length) {
-      streamingPreview.classList.remove('streaming-active');
-      return;
-    }
-
-    streamingPreview.classList.add('streaming-active');
-
-    streamingPreview.textContent += previewTokens[previewIndex];
-    previewIndex += 1;
-    previewTimeoutId = setTimeout(schedulePreviewTick, STREAMING_INTERVAL_MS);
-  };
-
-  const updateStreamingPreview = () => {
-    if (!streamingPreview) {
-      return;
-    }
-    clearPreviewTimer();
-    previewIndex = 0;
-    const source = (promptInput?.value || '').trimEnd();
     streamingPreview.textContent = '';
-    previewTokens = source.match(/\S+\s*/g) || [];
-    schedulePreviewTick();
   };
 
   const clearLogs = () => {
@@ -706,20 +707,13 @@
   loadVoices();
 
   resetBtn.addEventListener('click', () => {
-    cfgSelect.value = '1.5';
+    cfgSelect.value = '2.3';
     stepsSelect.value = '5';
     updateCfgDisplay();
     updateStepsDisplay();
-    appendLog('[Frontend] Controls reset to defaults (CFG=1.5, Steps=5)');
+    appendLog('[Frontend] Controls reset to defaults (CFG=2.3, Steps=5)');
   });
 
-  if (promptInput) {
-    promptInput.addEventListener('input', () => {
-      if (previewActive) {
-        updateStreamingPreview();
-      }
-    });
-  }
 
   const handleLogMessage = raw => {
     let payload;
@@ -736,11 +730,30 @@
 
     const { event, data = {}, timestamp } = payload;
     switch (event) {
+      case 'llm_request_received': {
+        const model = data.model || 'default';
+        const apiMode = data.api_mode || 'chat';
+        const promptLength = data.prompt_length ?? 0;
+        appendLog(`[Backend]  LLM request received (model=${model}, api=${apiMode}, chars=${promptLength})`, timestamp);
+        break;
+      }
+      case 'llm_delta': {
+        const deltaText = data.text || '';
+        if (deltaText && streamingPreview) {
+          streamingPreview.textContent += deltaText;
+        }
+        return;
+      }
+      case 'llm_error':
+        appendLog(`[Error] LLM error: ${data.message || 'Unknown error'}`, timestamp);
+        break;
+      case 'tts_segment_start':
+        appendLog(`[Backend]  TTS segment start (${data.chars || 0} chars)`, timestamp);
+        break;
+      case 'tts_segment_complete':
+        appendLog(`[Backend]  TTS segment complete (${data.chars || 0} chars)`, timestamp);
+        break;
       case 'backend_request_received': {
-        const cfg = typeof data.cfg_scale === 'number' ? data.cfg_scale.toFixed(3) : data.cfg_scale;
-        const steps = data.inference_steps ?? 'default';
-        const voice = data.voice || 'default';
-        const textLength = data.text_length ?? 0;
         appendLog(`[Backend]  Received request`, timestamp);
         break;
       }
@@ -761,6 +774,9 @@
       case 'backend_error':
         appendLog(`[Error] Backend error: ${data.message || 'Unknown error'}`, timestamp);
         break;
+      case 'backend_busy':
+        appendLog(`[Backend]  ${data.message || 'Service busy'}`, timestamp);
+        break;
       case 'client_disconnected':
         appendLog('[Frontend] Client disconnected', timestamp);
         break;
@@ -768,6 +784,9 @@
         appendLog('[Backend]  Backend finished', timestamp);
         recordingComplete = true;
         updateSaveButtonState();
+        if (streamingPreview) {
+          streamingPreview.classList.remove('streaming-active');
+        }
         break;
       default:
         appendLog(`[Log] Event ${event}`, timestamp);
@@ -898,7 +917,10 @@
       return;
     }
 
-    const textValue = promptInput?.value || '';
+    const promptValue = (llmPrompt?.value || '').trim();
+    const systemValue = (systemPrompt?.value || '').trim();
+    const modelValue = (llmModel?.value || '').trim();
+    const apiModeValue = (llmApiMode?.value || 'chat').trim();
     const cfgValue = Number(cfgSelect.value);
     const stepsValue = Number(stepsSelect.value);
     const voiceValue = voiceSelect.value || '';
@@ -906,33 +928,39 @@
     clearLogs();
     const cfgDisplay = Number.isFinite(cfgValue) ? cfgValue.toFixed(3) : 'default';
     const stepsDisplay = Number.isFinite(stepsValue) ? stepsValue : 'default';
-    appendLog(`[Frontend] Start button clicked, CFG=${cfgDisplay}, Steps=${stepsDisplay}, Speaker=${voiceValue || 'default'}`);
+    if (!promptValue) {
+      appendLog('[Frontend] LLM prompt is empty');
+      return;
+    }
+    appendLog(`[Frontend] Start button clicked, Model=${modelValue || 'default'}, API=${apiModeValue}, CFG=${cfgDisplay}, Steps=${stepsDisplay}, Speaker=${voiceValue || 'default'}`);
     setModelGenerated(0);
     setPlaybackElapsed(0);
 
     resetState(true);
     clearRecordedChunks();
     isPlaying = true;
-    previewActive = true;
-    updateStreamingPreview();
+    resetStreamingPreview();
     updateButtonLabel();
     createAudioChain();
 
-    const params = new URLSearchParams();
-    params.set('text', textValue);
-    if (!Number.isNaN(cfgValue)) {
-      params.set('cfg', cfgValue.toFixed(3));
-    }
-    if (!Number.isNaN(stepsValue)) {
-      params.set('steps', stepsValue.toString());
-    }
-    if (voiceValue) {
-      params.set('voice', voiceValue);
-    }
-    const wsUrl = `${location.origin.replace(/^http/, 'ws')}/stream?${params.toString()}`;
-
+    const wsUrl = `${location.origin.replace(/^http/, 'ws')}/stream_llm`;
     socket = new WebSocket(wsUrl);
     socket.binaryType = 'arraybuffer';
+    socket.onopen = () => {
+      const payload = {
+        prompt: promptValue,
+        system_prompt: systemValue,
+        model: modelValue || undefined,
+        api_mode: apiModeValue,
+        cfg: Number.isFinite(cfgValue) ? Number(cfgValue.toFixed(3)) : undefined,
+        steps: Number.isFinite(stepsValue) ? stepsValue : undefined,
+        voice: voiceValue || undefined,
+      };
+      socket.send(JSON.stringify(payload));
+      if (streamingPreview) {
+        streamingPreview.classList.add('streaming-active');
+      }
+    };
 
     socket.onmessage = event => {
       if (typeof event.data === 'string') {
@@ -988,9 +1016,9 @@
       recordingComplete = true;
       updateSaveButtonState();
     }
-    previewActive = false;
-    clearPreviewTimer();
-    streamingPreview?.classList.remove('streaming-active');
+    if (streamingPreview) {
+      streamingPreview.classList.remove('streaming-active');
+    }
     updateButtonLabel();
   };
 
@@ -1008,7 +1036,7 @@
   updateSaveButtonState();
   window.addEventListener('beforeunload', () => {
     resetState();
-    clearPreviewTimer();
+    resetStreamingPreview();
     revokeDownloadUrl();
   });
 })();
